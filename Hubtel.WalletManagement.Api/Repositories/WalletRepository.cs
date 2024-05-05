@@ -1,82 +1,111 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
-using Hubtel.WalletManagement.Api.Models;
-using StackExchange.Redis;
+using Hubtel.WalletManagement.Api.Data;
 using Hubtel.WalletManagement.Api.Interfaces;
+using Hubtel.WalletManagement.Api.Models;
+using Microsoft.EntityFrameworkCore;
+using StackExchange.Redis;
 
-namespace Hubtel.WalletManagement.Api.Repository
+namespace Hubtel.WalletManagement.Api.Repositories
 {
-    public class WalletRepository(ConnectionMultiplexer redis) : IWalletRepository
+    public class WalletRepository(ConnectionMultiplexer redisConnection, WalletDbContext dbContext) : IWalletRepository
     {
-        private readonly ConnectionMultiplexer _redis = redis ?? throw new ArgumentNullException(nameof(redis));
+        private readonly ConnectionMultiplexer _redisConnection = redisConnection ?? throw new ArgumentNullException(nameof(redisConnection));
+        private readonly WalletDbContext _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
 
         public async Task AddWalletAsync(Wallet wallet)
         {
-            var database = _redis.GetDatabase();
-            await database.HashSetAsync($"wallet:{wallet.Id}",
-            [
-                new HashEntry("AccountName", wallet.AccountName),
-                new HashEntry("AccountNumber", wallet.AccountNumber),
-                new HashEntry("Balance", wallet.Balance.ToString())
-            ]);
+            var redisDatabase = _redisConnection.GetDatabase();
+            await redisDatabase.HashSetAsync($"wallet:{wallet.Id}",
+                [
+                    new HashEntry("AccountName", wallet.AccountName),
+                    new HashEntry("AccountNumber", wallet.AccountNumber),
+                    new HashEntry("Balance", wallet.Balance.ToString())
+                ]);
+
+            _dbContext.Wallets.Add(wallet);
+            await _dbContext.SaveChangesAsync();
         }
 
         public async Task<Wallet> GetWalletAsync(Guid id)
         {
-            var database = _redis.GetDatabase();
-            var values = await database.HashGetAllAsync($"wallet:{id}");
+            var redisDatabase = _redisConnection.GetDatabase();
+            var redisValues = await redisDatabase.HashGetAllAsync($"wallet:{id}");
 
-            if (values.Length == 0)
+            if (redisValues.Length > 0)
             {
-                throw new KeyNotFoundException($"Wallet with ID {id} not found.");
+                var wallet = new Wallet
+                {
+                    Id = id,
+                    AccountName = redisValues[0].Value,
+                    AccountNumber = redisValues[1].Value,
+                };
+
+                // Check if the balance value is not null before parsing
+                if (decimal.TryParse(redisValues[2].Value, out decimal balance))
+                {
+                    wallet.Balance = balance;
+                }
+                else
+                {
+                    // Handle the case where parsing fails (e.g., set a default value)
+                    wallet.Balance = 0; // Or any other default value you prefer
+                }
+
+                return wallet;
             }
 
-            // Extract values and handle null cases
-            var accountName = values[0].Value.IsNull ? null : values[0].Value.ToString();
-            var accountNumber = values[1].Value.IsNull ? null : values[1].Value.ToString();
-            var balanceString = values[2].Value.IsNull ? null : values[2].Value.ToString();
-
-            // Check for null values and handle them
-            if (accountName == null || accountNumber == null || balanceString == null)
+            var foundWallet = await _dbContext.Wallets.FindAsync(id);
+            if (foundWallet != null)
             {
-                throw new InvalidOperationException($"Invalid data retrieved for wallet with ID {id}");
+                return foundWallet;
             }
 
-            if (!decimal.TryParse(balanceString, out decimal balance))
-            {
-                throw new InvalidOperationException($"Failed to parse balance for wallet with ID {id}");
-            }
-
-            return new Wallet
-            {
-                Id = id,
-                AccountName = accountName,
-                AccountNumber = accountNumber,
-                Balance = balance
-            };
+            // Handle the case where the wallet is not found
+            throw new KeyNotFoundException($"Wallet with ID {id} not found.");
         }
+
+
 
         public async Task UpdateWalletAsync(Guid id, Wallet wallet)
         {
-            var database = _redis.GetDatabase();
-            await database.HashSetAsync($"wallet:{id}",
-            [
-                new HashEntry("AccountName", wallet.AccountName),
-                new HashEntry("AccountNumber", wallet.AccountNumber),
-                new HashEntry("Balance", wallet.Balance.ToString())
-            ]);
+            var redisDatabase = _redisConnection.GetDatabase();
+            await redisDatabase.HashSetAsync($"wallet:{id}",
+                [
+                    new HashEntry("AccountName", wallet.AccountName),
+                    new HashEntry("AccountNumber", wallet.AccountNumber),
+                    new HashEntry("Balance", wallet.Balance.ToString())
+                ]);
+
+            _dbContext.Entry(wallet).State = EntityState.Modified;
+            await _dbContext.SaveChangesAsync();
         }
 
         public async Task DeleteWalletAsync(Guid id)
         {
-            var database = _redis.GetDatabase();
-            await database.KeyDeleteAsync($"wallet:{id}");
+            var redisDatabase = _redisConnection.GetDatabase();
+            await redisDatabase.KeyDeleteAsync($"wallet:{id}");
+
+            var wallet = await _dbContext.Wallets.FindAsync(id);
+            if (wallet != null)
+            {
+                _dbContext.Wallets.Remove(wallet);
+                await _dbContext.SaveChangesAsync();
+            }
         }
 
         public async Task<bool> WalletExistsAsync(Guid id)
         {
-            var database = _redis.GetDatabase();
-            return await database.KeyExistsAsync($"wallet:{id}");
+            var redisDatabase = _redisConnection.GetDatabase();
+            var redisKeyExists = await redisDatabase.KeyExistsAsync($"wallet:{id}");
+
+            if (!redisKeyExists)
+            {
+                return await _dbContext.Wallets.AnyAsync(w => w.Id == id);
+            }
+
+            return true;
         }
     }
 }

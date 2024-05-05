@@ -15,34 +15,65 @@ namespace Hubtel.WalletManagement.Api.Controllers
         [HttpPost]
         public async Task<IActionResult> AddWallet([FromBody] Wallet wallet)
         {
-            await _walletService.AddWalletAsync(wallet);
-            return CreatedAtAction(nameof(GetWallet), new { id = wallet.Id }, wallet);
+            try
+            {
+                await _walletService.AddWalletAsync(wallet);
+                return CreatedAtAction(nameof(GetWallet), new { id = wallet.Id }, wallet);
+            }
+            catch
+            {
+                // Log the exception or handle it accordingly
+                return StatusCode(500, "An error occurred while adding the wallet.");
+            }
         }
 
         [HttpGet("{id}")]
         public async Task<IActionResult> GetWallet(Guid id)
         {
-            var wallet = await _walletService.GetWalletAsync(id);
-            if (wallet == null)
+            try
             {
-                return NotFound();
+                var wallet = await _walletService.GetWalletAsync(id);
+                if (wallet == null)
+                {
+                    return NotFound();
+                }
+                return Ok(wallet);
             }
-            return Ok(wallet);
+            catch
+            {
+                // Log the exception or handle it accordingly
+                return StatusCode(500, "An error occurred while fetching the wallet.");
+            }
         }
 
         [HttpPut("{id}")]
         public async Task<IActionResult> UpdateWallet(Guid id, [FromBody] Wallet wallet)
         {
-            await _walletService.UpdateWalletAsync(id, wallet);
-            return Ok();
+            try
+            {
+                await _walletService.UpdateWalletAsync(id, wallet);
+                return Ok();
+            }
+            catch
+            {
+                // Log the exception or handle it accordingly
+                return StatusCode(500, "An error occurred while updating the wallet.");
+            }
         }
 
         [HttpDelete("{id}")]
         public async Task<IActionResult> DeleteWallet(Guid id)
         {
-            await _walletService.DeleteWalletAsync(id);
-            return NoContent();
+            try
+            {
+                await _walletService.DeleteWalletAsync(id);
+                return NoContent();
+            }
+            catch
+            {
+                // Log the exception or handle it accordingly
+                return StatusCode(500, "An error occurred while deleting the wallet.");
+            }
         }
     }
-    
 }
