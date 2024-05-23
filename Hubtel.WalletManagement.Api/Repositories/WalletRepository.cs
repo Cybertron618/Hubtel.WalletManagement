@@ -95,17 +95,5 @@ namespace Hubtel.WalletManagement.Api.Repositories
             }
         }
 
-        public async Task<bool> WalletExistsAsync(Guid id)
-        {
-            var redisDatabase = _redisConnection.GetDatabase();
-            var redisKeyExists = await redisDatabase.KeyExistsAsync($"wallet:{id}");
-
-            if (!redisKeyExists)
-            {
-                return await _dbContext.Wallets.AnyAsync(w => w.Id == id);
-            }
-
-            return true;
-        }
     }
 }
